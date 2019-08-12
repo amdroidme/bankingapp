@@ -20,12 +20,12 @@ public class Application {
     public static void main(String[] args) throws SQLException {
         Javalin app = Javalin.create().start(PORT);
         System.out.println("\n\n  Example of exposed endpoints : \n" +
-                "  1. PUT http://localhost:7000/account?accountId=3\n" +
-                "  2. PUT http://localhost:7000/create?accountId=10&initialAmount=5000\n" +
-                "  3. PUT http://localhost:7000/withdraw?accountId=1&amount=4598\n" +
-                "  4. PUT http://localhost:7000/deposit?accountId=1&amount=5000\n" +
-                "  5. PUT http://localhost:7000/transfer?amount=5000&fromAccountId=1&toAccountId=2\n" +
-                "  6. GET http://localhost:7000/transfer?amount=5000&fromAccountId=1&toAccountId=2\n");
+                "  1. GET http://localhost:7142/account?accountId=3\n" +
+                "  2. PUT http://localhost:7142/create?accountId=10&initialAmount=5000\n" +
+                "  3. PUT http://localhost:7142/withdraw?accountId=1&amount=4598\n" +
+                "  4. PUT http://localhost:7142/deposit?accountId=1&amount=5000\n" +
+                "  5. PUT http://localhost:7142/transfer?amount=5000&fromAccountId=1&toAccountId=2\n" +
+                "  6. GET http://localhost:7142/transfer?amount=5000&fromAccountId=1&toAccountId=2\n");
         AccountHandler accountHandler = new AccountHandler();
         AccountDAO accountJDBCDAO = new AccountJDBCDAOImpl();
         AccountService accountService = new AccountServiceImpl();
