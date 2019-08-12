@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.sat.revolut.handlers.AccountHandlerTest
+-------------------------------------------------------------------------------
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 12.591 s - in com.sat.revolut.handlers.AccountHandlerTest
