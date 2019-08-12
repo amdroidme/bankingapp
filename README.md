@@ -1,5 +1,7 @@
 # bankingapp
 
+Start : java -jar com.sat.revolut-1.0-SNAPSHOT.jar
+
   Example of exposed endpoints :
   1. PUT http://localhost:7142/account?accountId=3
   2. PUT http://localhost:7142/create?accountId=10&initialAmount=5000
