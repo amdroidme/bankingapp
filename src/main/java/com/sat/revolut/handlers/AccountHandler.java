@@ -26,10 +26,16 @@ public class AccountHandler {
 
 
     public String transferAmount(BigDecimal amount, Long fromAccountId, Long toAccountId) throws Exception {
+        if(fromAccountId == toAccountId){
+            throw new InvalidAccountNumberException("From and To account ID same");
+        }
+
         validateInputAmount(amount);
+
         if(!isAccountExist(fromAccountId) || !isAccountExist(toAccountId)){
             throw new NoAccountFoundException("One of Account does not exist");
         }
+
 
         String transactionId = Thread.currentThread().hashCode() + "_" +System.currentTimeMillis() + "_" + fromAccountId + "_" + toAccountId;
         logger.info("Initiating transaction : " + transactionId);

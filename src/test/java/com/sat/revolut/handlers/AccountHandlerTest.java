@@ -29,6 +29,7 @@ class AccountHandlerTest {
         accountHandler.setAccountService(accountService);
         }catch(SQLException e){
             logger.error("Exception while setting test : " + e.getMessage());
+            Assertions.fail(e);
         }
 
     }
@@ -84,6 +85,11 @@ class AccountHandlerTest {
                 accountHandler.transferAmount(new BigDecimal("100000"), 1l, 2l);
 
         },"Validation of amount exceeding available balance");
+
+        Assertions.assertThrows(InvalidAccountNumberException.class, () -> {
+            accountHandler.transferAmount(new BigDecimal("100"), 1l, 1l);
+
+        },"Both Account number are same.");
     }
 
     @Test
