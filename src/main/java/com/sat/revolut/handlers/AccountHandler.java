@@ -8,15 +8,15 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.text.MessageFormat;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Consumer;
 
 
 public class AccountHandler {
     private Logger logger = LoggerFactory.getLogger(this.getClass());
-    private ConcurrentHashMap<Long, ReentrantReadWriteLock> mapOfLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, ReentrantReadWriteLock> mapOfLocks = new ConcurrentHashMap<>();
     private AccountService accountService = null;
 
     private boolean lockCleanUpInProgress = Boolean.FALSE;
@@ -25,8 +25,8 @@ public class AccountHandler {
 
 
 
-    public String transferAmount(BigDecimal amount, Long fromAccountId, Long toAccountId) throws Exception {
-        if(fromAccountId == toAccountId){
+    public String transferAmount(BigDecimal amount, Long fromAccountId, Long toAccountId) throws NoAccountFoundException, InvalidAccountNumberException, SQLException, InvalidAmountException, RetriesExceededException, InterruptedException {
+        if(fromAccountId.equals(toAccountId)){
             throw new InvalidAccountNumberException("From and To account ID same");
         }
 
@@ -38,21 +38,27 @@ public class AccountHandler {
 
 
         String transactionId = Thread.currentThread().hashCode() + "_" +System.currentTimeMillis() + "_" + fromAccountId + "_" + toAccountId;
-        logger.info("Initiating transaction : " + transactionId);
+        if(logger.isInfoEnabled()){
+            logger.info(MessageFormat.format("Initiating transaction : {0}" , transactionId));
+        }
 
         ReadWriteLock fromAccountLock = getLockTobeAcquired(fromAccountId);
         ReadWriteLock toAccountLock = getLockTobeAcquired(toAccountId);
 
-        fromAccountLock.writeLock().lock();
-        toAccountLock.writeLock().lock();
-        try {
-            logger.info("Acquired locks for transaction : " + transactionId);
+        int retires = 0;
+        while(!isBothLockAcquired(fromAccountLock,toAccountLock)){
+            retires++;
+            if(retires > 100){
+                throw new RetriesExceededException("Unable to acquire lock after 100 tries.");
+            }
+        }
 
+
+        try {
 
             BigDecimal fromAccountBalance = getBalance(fromAccountId);
 
             if(fromAccountBalance.compareTo(amount) < 0){
-                logger.info("Transaction : " + transactionId + " failed. Low balance in account " + fromAccountId);
                 throw new LowBalanceException("Transaction Id : " + transactionId + " failed with error : " + "Low balance in account " + fromAccountId);
             }
 
@@ -63,68 +69,73 @@ public class AccountHandler {
 
             updateBalance(fromAccountBalance, fromAccountId);
             updateBalance(toAccountBalance, toAccountId);
-
-            logger.info("Transaction : " + transactionId + " is completed");
         }finally {
             fromAccountLock.writeLock().unlock();
             toAccountLock.writeLock().unlock();
-            logger.info("released locks for transaction : " + transactionId);
         }
         return "Transaction : " + transactionId + " is completed";
     }
 
-    public void deposit(BigDecimal amount,Long accountId) throws Exception{
+    private boolean isBothLockAcquired(ReadWriteLock lock1 , ReadWriteLock lock2){
+        boolean lock2Acq = false;
+        boolean lock1Acq = false;
+        try {
+            lock2Acq = lock2.writeLock().tryLock();
+            lock1Acq = lock1.writeLock().tryLock();
+
+        }finally{
+            if(!(lock1Acq && lock2Acq)){
+                if(lock1Acq){
+                   lock1.writeLock().unlock();
+                }
+                if(lock2Acq){
+                    lock2.writeLock().unlock();
+                }
+            }
+        }
+        return lock1Acq && lock2Acq;
+    }
+
+    public void deposit(BigDecimal amount,Long accountId) throws InvalidAmountException,NoAccountFoundException,SQLException,InterruptedException{
         validateInputAmount(amount);
         if(!isAccountExist(accountId)){
             throw new NoAccountFoundException("Account does not exist");
         }
 
-        String transactionId = Thread.currentThread().hashCode() + "_deposit_" + System.currentTimeMillis() + "_" + accountId;
-        logger.info("Initiating deposit transaction " + transactionId);
         ReadWriteLock lock = getLockTobeAcquired(accountId);
         lock.writeLock().lock();
         try{
-            logger.info("Acquired lock for transaction " + transactionId);
             BigDecimal currentBalance = getBalance(accountId);
             BigDecimal newBalance = currentBalance.add(amount);
 
             updateBalance(newBalance,accountId);
-
-            logger.info("Transaction " + transactionId + " completed") ;
         } finally{
             lock.writeLock().unlock();
-            logger.info("Released lock for transaction " + transactionId);
         }
     }
 
-    public void withDraw(BigDecimal amount,Long accountId) throws Exception{
+    public void withDraw(BigDecimal amount,Long accountId) throws InvalidAmountException,NoAccountFoundException,SQLException,InterruptedException{
         validateInputAmount(amount);
         if(!isAccountExist(accountId)){
             throw new NoAccountFoundException("Account does not exist");
         }
         String transactionId = Thread.currentThread().hashCode() + "_withdraw_" + System.currentTimeMillis() + "_" + accountId;
-        logger.info("Initiating deposit transaction " + transactionId);
         ReadWriteLock lock = getLockTobeAcquired(accountId);
         lock.writeLock().lock();
         try{
-            logger.info("Acquired lock for transaction " + transactionId);
             BigDecimal currentBalance = getBalance(accountId);
             if(currentBalance.compareTo(amount) < 0){
-                logger.info("Transaction : " + transactionId + " failed. Low balance in account " + accountId);
                 throw new LowBalanceException("Transaction : " + transactionId + " failed. Low balance in account " + accountId);
             }
             BigDecimal newBalance = currentBalance.subtract(amount);
 
             updateBalance(newBalance,accountId);
-
-            logger.info("Transaction " + transactionId + " completed") ;
         }finally{
             lock.writeLock().unlock();
-            logger.info("Released lock for transaction " + transactionId);
         }
     }
 
-    public Account getAccount(Long accountId) throws SQLException, NoAccountFoundException {
+    public Account getAccount(Long accountId) throws SQLException, NoAccountFoundException,InterruptedException {
         if(!isAccountExist(accountId)){
             throw new NoAccountFoundException("No account with exist id : " + accountId);
         }
@@ -140,10 +151,10 @@ public class AccountHandler {
         }
     }
 
-    public void createAccount(Long accountId, BigDecimal initialBalance) throws InvalidAmountException, InvalidAccountNumberException, AccountAlreadyExistException,SQLException {
+    public void createAccount(Long accountId, BigDecimal initialBalance) throws InvalidAmountException, InvalidAccountNumberException, AccountAlreadyExistException,SQLException,InterruptedException {
         validateInputAmount(initialBalance);
 
-        if(accountId <= 01){
+        if(accountId <= 0){
             throw new InvalidAccountNumberException("Account number is invalid");
         }
 
@@ -185,36 +196,39 @@ public class AccountHandler {
 
     private void cleanUpUnusedLocks(){
         try{
-            logger.info("Unused lock clean up in progress , current size " + mapOfLocks.size() + " max allowed size : " + MAX_ALLOWED_IN_MEMORY_LOCKS);
+            if(logger.isInfoEnabled()) {
+                logger.info(MessageFormat.format("Unused lock clean up in progress , current size {1} max allowed size : {0}" , MAX_ALLOWED_IN_MEMORY_LOCKS,mapOfLocks.size()));
+            }
             lockCleanUpInProgress = true;
-            mapOfLocks.forEachKey(0, new Consumer<Long>() {
-                @Override
-                public void accept(Long accountId) {
+            mapOfLocks.forEachKey(0, accountId -> {
                     ReentrantReadWriteLock lock = mapOfLocks.get(accountId);
                     if(lock.writeLock().getHoldCount() == 0){
                         mapOfLocks.remove(accountId);
-                        logger.info("Unused lock removed for accountId : " + accountId);
                     }
-                }
             });
 
         }finally {
-            logger.info("Unused lock clean state , current size " + mapOfLocks.size() + " max allowed size : " + MAX_ALLOWED_IN_MEMORY_LOCKS);
+            if(logger.isInfoEnabled()) {
+                logger.info(MessageFormat.format("Unused lock clean state , current size {1} max allowed size : {0}", MAX_ALLOWED_IN_MEMORY_LOCKS, mapOfLocks.size()));
+            }
             lockCleanUpInProgress = false;
         }
     }
 
 
 
-    private ReentrantReadWriteLock getLockTobeAcquired(Long accountId){
+    private ReentrantReadWriteLock getLockTobeAcquired(Long accountId) throws InterruptedException {
         // Like stop the world scenario, Force all incoming threads accessing locks to sleep, so that clean up can be performed efficiently.
         // Sleep will be executed. Only latency will be seen, will NOT hung application, as cleanup will be very fast.
         while(lockCleanUpInProgress){
             try{
-                logger.info(Thread.currentThread().getName() + " %s is going to sleep to help clean up of locks.");
+                if(logger.isInfoEnabled()) {
+                    logger.info(MessageFormat.format("{0} is going to sleep to help clean up of locks.", Thread.currentThread().getName()));
+                }
                 Thread.sleep(100);
             }catch(InterruptedException e) {
-                logger.error(Thread.currentThread().getName() + "is interrupted while sleeping.");
+                logger.error(MessageFormat.format( " {0} is interrupted while sleeping.",Thread.currentThread().getName()));
+                throw e;
             }
         }
 
@@ -240,7 +254,4 @@ public class AccountHandler {
     public void setAccountService(AccountService accountService) {
         this.accountService = accountService;
     }
-
-
-
 }
